@@ -13,12 +13,15 @@ func _ready():
 
 	if(OS.get_name() == "Android"):
 		$VBoxContainer/GridContainer/ModsFolderButton.setIsDisabled(true)
-		$VBoxContainer/GridContainer/RemoveModsButton.setIsDisabled(true)
+		# Keep this enabled so Android users can delete their imported mods!
+		$VBoxContainer/GridContainer/RemoveModsButton.setIsDisabled(false)
+		ensure_external_mods_folder_exists()
 
 	if OS.get_name() == "HTML5" and OS.has_feature("JavaScript"):
 		_define_js()
 
-	var text = "[b][url=https://github.com/Alexofp/BDCC/wiki/How-to-install-BDCC-mods]How to install mods (click me)[/url][/b]\n\nTo install a mod drag it into the mods folder and restart the game. Mods are loaded in alphabetical order.\n\n"
+	# UPDATED: Changed the text instruction to match your new custom Download folder system!
+	var text = "[b][url=https://github.com/Alexofp/BDCC/wiki/How-to-install-BDCC-mods]How to install mods (click me)[/url][/b]\n\nTo install a mod, drag it into your phone's public folder: [color=yellow]Download/BDCCMods/[/color] and press the Import Mod button. Mods downloaded from the in-game browser are saved here automatically.\n"
 	if(!GlobalRegistry.hasModSupport()):
 		text += "! Mods aren't supported when running the game from the editor, this is godot issue. Export the game and run it standalone to get mod support !\n\n"
 		# read more here: https://github.com/godotengine/godot/issues/19815
@@ -44,6 +47,15 @@ func _ready():
 		
 		
 	modsLabel.bbcode_text = text
+	
+func ensure_external_mods_folder_exists():
+	if OS.get_name() == "Android":
+		var download_path = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS) + "/"
+		var target_folder = download_path + "BDCCMods/"
+		
+		var dir = Directory.new()
+		if not dir.dir_exists(target_folder):
+			dir.make_dir_recursive(target_folder)
 	
 func _on_CloseButton_pressed():
 	emit_signal("onClosePressed")
@@ -142,31 +154,44 @@ func _on_AddModButton_pressed():
 		if(!showedModDialog):
 			showedModDialog = true
 			$ModAcceptDialog.visible = true
-	else:
-		if(OS.get_name() == "Android"):
-#			var has_permissions: bool = false
-#
-#			while not has_permissions:
-#				#var permissions = OS.get_granted_permissions()
-#				var permissions: Array = OS.get_granted_permissions() #for Godot 3 branch
-#
-#				if not permissions.has("android.permission.READ_EXTERNAL_STORAGE") \
-#					or not permissions.has("android.permission.WRITE_EXTERNAL_STORAGE"):
-#					var _ok = OS.request_permissions()
-#					#await get_tree().create_timer(1).timeout
-#					yield(get_tree().create_timer(1), "timeout") #for Godot 3 branch
-#				else:
-#					has_permissions = true
-					
-			var d = Directory.new()
-			var externalDir:String = OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
-			var finalDir = externalDir.plus_file("BDCCMods")
-			d.make_dir_recursive(finalDir)
-			#$ImportModDialog.current_dir = finalDir
-			$AndroidPathAlert.dialog_text = "Mods on android are loaded from:\n"+finalDir+"\nPlace them there and restart the game."
-			$AndroidPathAlert.popup_centered()
-			return
+	elif OS.get_name() == "Android":
+		var external_folder = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS) + "/BDCCMods/"
+		var internal_mod_path = "user://mods/"
 		
+		var dir = Directory.new()
+		
+		# Make sure internal sandbox mod folder exists
+		if not dir.dir_exists(internal_mod_path):
+			dir.make_dir_recursive(internal_mod_path)
+			
+		if dir.open(external_folder) == OK:
+			dir.list_dir_begin(true)
+			var file_name = dir.get_next()
+			
+			var success_count = 0
+			
+			while file_name != "":
+				if not dir.current_is_dir() and (file_name.ends_with(".zip") or file_name.ends_with(".pck")):
+					var source = external_folder + file_name
+					var destination = internal_mod_path + file_name
+					
+					if dir.copy(source, destination) == OK:
+						success_count += 1
+						
+				file_name = dir.get_next()
+			dir.list_dir_end()
+			
+			if success_count > 0:
+				$AndroidPathAlert.dialog_text = "Successfully imported " + str(success_count) + " mod files!\nRestart the game to apply them."
+				$AndroidPathAlert.window_title = "Import Complete"
+				$AndroidPathAlert.popup_centered()
+			else:
+				$AndroidPathAlert.dialog_text = "No files ending in .zip or .pck were found in Download/BDCCMods/"
+				$AndroidPathAlert.window_title = "Import Empty"
+				$AndroidPathAlert.popup_centered()
+		else:
+			print("Error: Could not scan external mods directory.")
+	else:
 		$ImportModDialog.popup_centered()
 
 
@@ -204,7 +229,7 @@ func _on_ModsLabel_meta_clicked(meta):
 
 func _on_SkinsFolderButton_pressed():
 	if(OS.get_name() == "Android"):
-		$AndroidPathAlert.dialog_text = "Custom skins on android are loaded from \"Documents/BDCCMods/custom_skins\"\nCreate that folder if it doesn't exist."
+		$AndroidPathAlert.dialog_text = "Custom skins on android are loaded from \"Download/BDCCMods/custom_skins\"\nCreate that folder if it doesn't exist."
 		$AndroidPathAlert.popup_centered()
 	else:
 		var _ok = Util.fixed_shell_open(ProjectSettings.globalize_path("user://custom_skins"))
