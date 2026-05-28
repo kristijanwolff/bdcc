@@ -8,6 +8,8 @@ var currentExportedPath = ""
 signal in_focus
 
 func _ready():
+	# Automatically setup our public folder structure on launch
+	ensure_external_save_folder_exists()
 	updateSaves()
 	
 	if(OS.get_name() == "Android"):
@@ -18,7 +20,16 @@ func _ready():
 	
 	if OS.get_name() == "HTML5" and OS.has_feature("JavaScript"):
 		_define_js()
-
+		
+func ensure_external_save_folder_exists():
+	if OS.get_name() == "Android":
+		var download_path = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS) + "/"
+		var target_folder = download_path + "BDCCSaves/"
+		
+		var dir = Directory.new()
+		if not dir.dir_exists(target_folder):
+			dir.make_dir_recursive(target_folder)
+		
 func updateSaves():
 	Util.delete_children(savesContainer)
 	
@@ -68,21 +79,8 @@ func onExportButtonClicked(savePath: String):
 		return
 	
 	if(OS.get_name() == "Android"):
-#		var has_permissions: bool = false
-#		while not has_permissions:
-#			#var permissions = OS.get_granted_permissions()
-#			var permissions: Array = OS.get_granted_permissions() #for Godot 3 branch
-#
-#			if not permissions.has("android.permission.READ_EXTERNAL_STORAGE") \
-#				or not permissions.has("android.permission.WRITE_EXTERNAL_STORAGE"):
-#				var _ok = OS.request_permissions()
-#				#await get_tree().create_timer(1).timeout
-#				yield(get_tree().create_timer(1), "timeout") #for Godot 3 branch
-#			else:
-#				has_permissions = true
-		
 		var d = Directory.new()
-		var externalDir:String = OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+		var externalDir:String = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS)
 		var finalDir = externalDir.plus_file("BDCCSaves/")
 		d.make_dir_recursive(finalDir)
 		var finalPath = finalDir.plus_file(savePath.get_file())
@@ -168,7 +166,6 @@ func readSaveFileHTML5():
 	
 	return [file_name, file_data]
 
-
 func _on_ImportButton_pressed():
 	if OS.get_name() == "HTML5":
 		var saveDataAndFileName = yield(readSaveFileHTML5(), "completed")
@@ -176,27 +173,49 @@ func _on_ImportButton_pressed():
 			return
 		SAVE.saveGameFromText(saveDataAndFileName[0], saveDataAndFileName[1])
 		updateSaves()
-	else:
-		if(OS.get_name() == "Android"):
-#			var has_permissions: bool = false
-#
-#			while not has_permissions:
-#				#var permissions = OS.get_granted_permissions()
-#				var permissions: Array = OS.get_granted_permissions() #for Godot 3 branch
-#
-#				if not permissions.has("android.permission.READ_EXTERNAL_STORAGE") \
-#					or not permissions.has("android.permission.WRITE_EXTERNAL_STORAGE"):
-#					var _ok = OS.request_permissions()
-#					#await get_tree().create_timer(1).timeout
-#					yield(get_tree().create_timer(1), "timeout") #for Godot 3 branch
-#				else:
-#					has_permissions = true
+	elif OS.get_name() == "Android":
+		var external_folder = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS) + "/BDCCSaves/"
+		var internal_save_path = "user://saves/"
 		
-			var d = Directory.new()
-			var externalDir:String = OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
-			var finalDir = externalDir.plus_file("BDCCSaves")
-			d.make_dir_recursive(finalDir)
-			$ImportSaveDialog.current_dir = finalDir
+		var dir = Directory.new()
+		
+		# Ensure internal path is fully prepared
+		if not dir.dir_exists(internal_save_path):
+			dir.make_dir_recursive(internal_save_path)
+			
+		if dir.open(external_folder) == OK:
+			dir.list_dir_begin(true)
+			var file_name = dir.get_next()
+			
+			var success_count = 0
+			
+			while file_name != "":
+				if not dir.current_is_dir() and file_name.ends_with(".save"):
+					var source = external_folder + file_name
+					var destination = internal_save_path + file_name
+					
+					if dir.copy(source, destination) == OK:
+						success_count += 1
+						
+				file_name = dir.get_next()
+			dir.list_dir_end()
+			
+			# Force visual update so user instantly sees new options
+			updateSaves()
+			
+			# Give a nice system pop up confirming success
+			if success_count > 0:
+				$SaveExportedAlert.dialog_text = "Successfully imported " + str(success_count) + " save files!"
+				$SaveExportedAlert.window_title = "Import Complete"
+				$SaveExportedAlert.popup_centered()
+			else:
+				$SaveExportedAlert.dialog_text = "No custom files ending in .save were found in Download/BDCCSaves/"
+				$SaveExportedAlert.window_title = "Import Empty"
+				$SaveExportedAlert.popup_centered()
+		else:
+			print("Error: Could not scan target directory.")
+	else:
+		# Keep original file fallback behavior active for desktop machines
 		$ImportSaveDialog.popup_centered()
 
 func _on_ImportSaveDialog_file_selected(path: String):
